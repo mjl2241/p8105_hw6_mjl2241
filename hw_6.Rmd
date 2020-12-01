@@ -69,25 +69,44 @@ using glm function to fit a logistic regression with resolved vs unresolved as t
 fit_logistic = 
   baltimore_df %>%
   glm(resolved ~victim_age + victim_race + victim_sex, data =.,
-      family = binomial)
-conf = confint(fit_logistic)
-
+      family = binomial) %>%
+  broom::tidy()
 ```
 Obtaining the estimate, CI, OR for solving homicides comparing non-white victims to white victims keeping all other variables fixed:
 ```{r table}
 fit_logistic %>% 
-  broom::tidy() %>% 
-  mutate(OR = exp(estimate)) %>%
+    group_by(term) %>% 
+    summarize(
+    ci_lower = quantile(estimate, 0.025), 
+    ci_upper = quantile(estimate, 0.975))
+  
   select(term, log_OR = estimate, OR, p.value) %>% 
   knitr::kable(digits = 3)
 ```
-Homicides in which the victim is black are substantially less likely to be resolved that those in which the victim is white
+Interpretation:
+Homicides in which the victim is black are substantially less likely to be resolved that those in which the victim is white. Homicides in which the victim is male are significantly less like to be resolved than those in which the victim is female.The effect of age is statistically significant, and should be studied further.
 
-Using the prop.test on Baltimore, MA
-``` {r baltimore data, error = TRUE}
-prop.test(
-  homicide_status_df %>% filter(city_state == "Baltimore , MD") %>% pull(unsolved_hom), 
-  homicide_status_df %>% filter(city_state == "Baltimore , MD") %>% pull(total_hom)) %>% 
-  broom::tidy()
+Now run glm for each of the cities in your dataset, and extract the adjusted odds ratio (and CI) for solving homicides comparing Black victims to white victims. Do this within a “tidy” pipeline, making use of purrr::map, list columns, and unnest as necessary to create a dataframe with estimated ORs and CIs for each city.
+
+``` {r}
+results_df = 
+  homicide_status_df %>% 
+  mutate(glm_tests = map2(.x=)
+  glm(resolved ~victim_age + victim_race + victim_sex, data =.,
+      family = binomial)
+    prop_tests = map2(.x = unsolved_hom, .y = total_hom, ~prop.test(x = .x, n = .y)),
+    tidy_tests = map(.x = prop_tests, ~broom::tidy(.x))
+  ) %>% 
+  select(-prop_tests) %>% 
+  unnest(tidy_tests) %>% 
+  select(city_state, estimate, conf.low,conf.high)
 ```
-Applying prop.test on all the cities
+Create a plot that shows the estimated ORs and CIs for each city. Organize cities according to estimated OR, and comment on the plot.
+``` {r plot for results_df}
+results_df %>% 
+  mutate(city_state = fct_reorder(city_state, estimate)) %>% 
+  ggplot(aes(x = city_state, y = estimate)) +
+  geom_point() + 
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
