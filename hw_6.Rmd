@@ -1,0 +1,93 @@
+---
+title: "HW6"
+output: github_document
+---
+
+This is my response to HW 6:
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library (patchwork)
+library(readr)
+library(broom)
+library(viridis)
+library(dbplyr)
+
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+We start off by downloading the data from The Washing Post, on on homicides in 50 large U.S. cities via Github. After taking a look at the dataset, we also created city_state variable and a binary variable indicating whether the homicide is solved.
+```{r}
+homicide_df =
+  read.csv(url("https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv")) %>%
+  janitor::clean_names() 
+
+skimr::skim(homicide_df)
+  
+homicide_df$city_state= 
+  paste(homicide_df$city,",", homicide_df$state)
+
+
+homicide_df = 
+  homicide_df %>%
+  filter(city_state != "Dallas , TX" | #drop certain cities
+        city_state != "Phoenix , AZ" |
+        city_state != "Kansas City , MO" |
+        city_state != "Tulsa , AL") %>% 
+  filter(victim_race == "White" | #drop rows not containing white or black in victim_race
+           victim_race == "Black") %>%
+  mutate(resolved = as.numeric(disposition == 'Closed by arrest'), #create a binary resolved variable
+         victim_age=as.numeric(victim_age)) #change victim age as numeric
+```
+For the city of Baltimore, MD...  
+``` {r baltimore}
+baltimore_df = 
+  homicide_df %>%
+  filter(city == "Baltimore") %>%
+  mutate(
+    victim_race=fct_relevel(victim_race, "White")) %>%
+  select(resolved, victim_age, victim_sex, victim_race)
+```
+using glm function to fit a logistic regression with resolved vs unresolved as the outcome and victim age, sex and race as predictors. 
+``` {r create a logistic regression with glm function}
+fit_logistic = 
+  baltimore_df %>%
+  glm(resolved ~victim_age + victim_race + victim_sex, data =.,
+      family = binomial)
+conf = confint(fit_logistic)
+
+```
+Obtaining the estimate, CI, OR for solving homicides comparing non-white victims to white victims keeping all other variables fixed:
+```{r table}
+fit_logistic %>% 
+  broom::tidy() %>% 
+  mutate(OR = exp(estimate)) %>%
+  select(term, log_OR = estimate, OR, p.value) %>% 
+  knitr::kable(digits = 3)
+```
+Homicides in which the victim is black are substantially less likely to be resolved that those in which the victim is white
+
+Using the prop.test on Baltimore, MA
+``` {r baltimore data, error = TRUE}
+prop.test(
+  homicide_status_df %>% filter(city_state == "Baltimore , MD") %>% pull(unsolved_hom), 
+  homicide_status_df %>% filter(city_state == "Baltimore , MD") %>% pull(total_hom)) %>% 
+  broom::tidy()
+```
+Applying prop.test on all the cities
