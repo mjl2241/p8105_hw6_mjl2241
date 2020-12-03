@@ -12,7 +12,9 @@ library(readr)
 library(broom)
 library(viridis)
 library(dbplyr)
-
+library(MASS)
+library(modelr)
+library(mgcv)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -125,6 +127,55 @@ glm_cities  %>%
   )
 ```
 Based on the graph above, Boston, MA had the lowest odds ratio compared to other major cities, meanwhile,
-Tampa, Florida had the highest odds ratio of unsolved black homicides. This graph illustrates the odds of 
-solving homicides in 50 major cities significantly differ based on victim's race.
+Tampa, Florida had the highest odds ratio of unsolved black homicides. This graph illustrates the odds of solving homicides in 50 major cities significantly differ based on victim's race.
+
+### Problem 2
+Import data & load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
+``` {r import dataset}
+bw=
+  read.csv("./birthweight.csv") %>%
+  janitor::clean_names() %>%
+   mutate(babysex = as.factor(babysex),
+          malform = as.factor(malform),
+          mrace = as.factor(mrace),
+          frace = as.factor(frace))
+skimr::skim(bw)
+```
+For this dataset, babysex, malform, mrace, and frace were converted to factors. The dataset of child birth weight contains 20 columns and 4342 rows. 
+
+I'll use stepwise to build a model for birthweight. 
+Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
+```{r regression model}
+# Fit the full model 
+full.model <- lm(bwt ~., data = bw)
+# Stepwise regression model
+step.model = stepAIC(full.model, direction = "both", 
+                      trace = FALSE)
+```
+The result indicated that 13 variables, including babysex2 (female), bhead, blength, delwt, fincome, gaweeks, mheight, mrace2(black), mrace3(Asian), mrace4(Puerto Rian), parity, ppwt, and smoken were significant.  predictors. 
+```{r}
+#Final model:
+final_model = 
+  lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = bw) %>%
+  broom::tidy ()
+summary(final_model)
+
+```
+The output shows that R^2 is 0.71, indicating that these 14 predictors explain 71% of the variance in birthweight.And now onto plotting of model residuals against fitted values – using add_predictions and add_residuals in making this plot.
+```{r}
+modelr::add_residuals(bw, final_model)
+
+bw %>% 
+  add_residuals(model = final_model, var = "resid") %>% 
+  add_predictions(model = final_model, var = "pred") %>% 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point() +
+  geom_smooth() + 
+  #Add the title and the name for x and y axis. 
+  labs(
+    title = "Model Residuals v.s. Fitted Values",
+    x = "Prediction values",
+    y = "Residuals"
+  )
+```
 
