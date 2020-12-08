@@ -1,6 +1,8 @@
 ---
 title: "HW6"
 output: github_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 This is my response to HW 6:
@@ -130,7 +132,7 @@ Based on the graph above, Boston, MA had the lowest odds ratio compared to other
 Tampa, Florida had the highest odds ratio of unsolved black homicides. This graph illustrates the odds of solving homicides in 50 major cities significantly differ based on victim's race.
 
 ### Problem 2
-Import data & load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
+Import data & load and clean the data for regression analysis 
 ``` {r import dataset}
 bw=
   read.csv("./birthweight.csv") %>%
@@ -144,7 +146,6 @@ skimr::skim(bw)
 For this dataset, babysex, malform, mrace, and frace were converted to factors. The dataset of child birth weight contains 20 columns and 4342 rows. 
 
 I'll use stepwise to build a model for birthweight. 
-Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
 ```{r regression model}
 # Fit the full model 
 full.model <- lm(bwt ~., data = bw)
@@ -152,30 +153,71 @@ full.model <- lm(bwt ~., data = bw)
 step.model = stepAIC(full.model, direction = "both", 
                       trace = FALSE)
 ```
-The result indicated that 13 variables, including babysex2 (female), bhead, blength, delwt, fincome, gaweeks, mheight, mrace2(black), mrace3(Asian), mrace4(Puerto Rian), parity, ppwt, and smoken were significant.  predictors. 
+The result indicated that 11 predictors, including babysex2 (female), bhead, blength, delwt, fincome, gaweeks, mheight, mrace2(black), mrace3(Asian), mrace4(Puerto Rian), parity, ppwt, and smoken were significant predictors. 
 ```{r}
 #Final model:
 final_model = 
-  lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = bw) %>%
+  lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = bw) 
+final_model %>%
   broom::tidy ()
 summary(final_model)
-
 ```
-The output shows that R^2 is 0.71, indicating that these 14 predictors explain 71% of the variance in birthweight.And now onto plotting of model residuals against fitted values – using add_predictions and add_residuals in making this plot.
+And now onto plotting of model residuals against fitted values – using add_predictions and add_residuals in making this plot.
 ```{r}
-modelr::add_residuals(bw, final_model)
-
 bw %>% 
-  add_residuals(model = final_model, var = "resid") %>% 
-  add_predictions(model = final_model, var = "pred") %>% 
+  modelr::add_residuals(final_model) %>%
+  modelr::add_predictions(final_model) %>%
   ggplot(aes(x = pred, y = resid)) + 
   geom_point() +
-  geom_smooth() + 
-  #Add the title and the name for x and y axis. 
   labs(
     title = "Model Residuals v.s. Fitted Values",
-    x = "Prediction values",
+    x = "Predicted values",
     y = "Residuals"
   )
 ```
+#### About the model
+
+I propose the above final model, based on stepwise regression selection. The variables seem reasonable predictors for babyweight, especially the baby gender, length, and gestational age(in weeks). The output shows that R^2 is 0.71, indicating that these 11 predictors (babysex2 (female), bhead, blength, delwt, fincome, gaweeks, mheight, mrace2(black), mrace3(Asian), mrace4(Puerto Rian), parity, ppwt, and smoken) explain 71% of the variance in birthweight. Based on the plot, we can see that when the prediction value is relatively small, the residual tend to be higher and the model does not have an accurate predication. When the prediction value is greater than 2000, the residuals become small and the prediction of the model is more accurate. This plot shows that the model violates the normal distribution of residual errors and homogeneity of residual variance.
+```{r comparing to two others}
+#other 3 models
+model_2 = 
+  lm(bwt ~ blength + gaweeks, data = bw) 
+model_2%>%
+  broom::tidy ()
+model_3 = 
+  lm(bwt ~ bhead*blength+babysex*blength +bhead*blength*babysex, data = bw) 
+model_3%>%
+  broom::tidy ()
+```
+#### Comparing models
+```{r}
+cv_df =
+  crossv_mc(bw, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+cv_df = 
+  cv_df %>% 
+  mutate(
+    final_model = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = bw)),
+    model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = bw)),
+    model_3 = map(train, ~lm(bwt ~ bhead*blength+babysex*blength +bhead*blength*babysex, data = bw))) %>% 
+  mutate(
+    rmse_final_model = map2_dbl(final_model, test, ~rmse(model = .x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
+    rmse_model_3 = map2_dbl(model_3, test, ~rmse(model = .x, data = .y))) 
+```
+#### plot the prediction error distribution
+```{r}
+cv_df %>% 
+  select(starts_with("rmse")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
 
