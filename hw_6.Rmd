@@ -2,21 +2,19 @@
 title: "HW6"
 output: github_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
-
 This is my response to HW 6:
-
 ```{r setup, include=FALSE}
 library(tidyverse)
-library (patchwork)
 library(readr)
 library(broom)
-library(viridis)
-library(dbplyr)
-library(MASS)
 library(modelr)
 library(mgcv)
+library(MASS)
+library(dbplyr)
+library(rnoaa)
+library(glmnet)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -66,7 +64,7 @@ For the city of Baltimore, MD...
 baltimore_df = 
   homicide_df %>%
   filter(city == "Baltimore") %>%
-  select(resolved, victim_age, victim_sex, victim_race)
+  dplyr::select(resolved, victim_age, victim_sex, victim_race)
 ```
 using glm function to fit a logistic regression with resolved vs unresolved as the outcome and victim age, sex and race as predictors. 
 ``` {r create a logistic regression with glm function}
@@ -85,7 +83,7 @@ fit_logistic %>%
   mutate(
     ci_lower = exp(estimate - std.error * 1.96),
     ci_upper =  exp(estimate + std.error * 1.96)) %>%
-  select(term, log_OR = estimate, OR, ci_lower, ci_upper, p.value) %>% 
+  dplyr::select(term, log_OR = estimate, OR, ci_lower, ci_upper, p.value) %>% 
   knitr::kable(digits = 3)
 ```
 Interpretation:
@@ -97,12 +95,12 @@ Now run glm for each of the cities in your dataset, and extract the adjusted odd
 glm_cities =
   homicide_df %>% 
   group_by(city_state) %>%
-  select(city_state, resolved, victim_age, victim_sex, victim_race) %>%
+  dplyr::select(city_state, resolved, victim_age, victim_sex, victim_race) %>%
   nest(data = -city_state) %>%
   mutate(
     models = map(data, ~glm(resolved ~victim_age + victim_race + victim_sex, data =.x, family = binomial)),
     results = map(models, broom::tidy)) %>% 
-  select(-data, -models) %>% 
+  dplyr::select(-data, -models) %>% 
   unnest(results) %>%
 #add CI, OR
   group_by(term) %>%
@@ -110,7 +108,7 @@ glm_cities =
     ci_lower = exp(estimate - std.error * 1.96),
     ci_upper =  exp(estimate + std.error * 1.96),
     OR = exp(estimate)) %>%
-  select(city_state, term, log_OR = estimate, OR, ci_lower, ci_upper, p.value) %>%
+  dplyr::select(city_state, term, log_OR = estimate, OR, ci_lower, ci_upper, p.value) %>%
   filter(term == "victim_raceBlack") %>% 
   mutate(city_state = forcats::fct_reorder(factor(city_state), OR)) 
 ```
@@ -185,7 +183,7 @@ model_2 =
 model_2%>%
   broom::tidy ()
 model_3 = 
-  lm(bwt ~ bhead*blength+babysex*blength +bhead*blength*babysex, data = bw) 
+  lm(bwt ~ bhead*blength*babysex, data = bw) 
 model_3%>%
   broom::tidy ()
 ```
@@ -199,9 +197,9 @@ cv_df =
 cv_df = 
   cv_df %>% 
   mutate(
-    final_model = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = bw)),
-    model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = bw)),
-    model_3 = map(train, ~lm(bwt ~ bhead*blength+babysex*blength +bhead*blength*babysex, data = bw))) %>% 
+    final_model = map(train, ~lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = .x)),
+    model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_3 = map(train, ~lm(bwt ~ bhead*blength*babysex, data = .x))) %>% 
   mutate(
     rmse_final_model = map2_dbl(final_model, test, ~rmse(model = .x, data = .y)),
     rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
@@ -210,7 +208,7 @@ cv_df =
 #### plot the prediction error distribution
 ```{r}
 cv_df %>% 
-  select(starts_with("rmse")) %>%
+  dplyr::select(starts_with("rmse")) %>%
   pivot_longer(
     everything(),
     names_to = "model", 
@@ -219,5 +217,73 @@ cv_df %>%
   mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
+Based on the violin plot of the three models, the final model has the lowest root mean square error and model 2 had the largest root-mean square error. Hence, the final model had the best performance, compared to other 2 models. 
 
+### Problem 3
+first import data
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+    dplyr::select(name, id, everything())
 
+set.seed(1)
+```
+we will not use the bootstrap to examine the distribution of \hat{r}^2and log(\hat{\beta}_0*\hat{\beta}_1):using 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. 
+```{r}
+boot_strap = 
+  weather_df %>% 
+  bootstrap(n = 5000) %>% 
+  mutate(
+    models = map(strap,~ lm(tmax ~ tmin, data = .x) ),
+    results = map(models, broom::tidy),
+    results_2 = map(models, broom::glance)) %>% 
+  dplyr::select(-strap, -models) %>% 
+  unnest(results, results_2) %>% 
+  dplyr::select(.id, term, estimate, r.squared) %>% 
+  pivot_wider(
+    names_from = "term",
+    values_from = "estimate"
+  ) %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    log_int= log(intercept * tmin)
+  )
+```
+Plot of the distribution of \hat{r}^2:
+```{r}
+boot_strap  %>%
+  ggplot(aes(x=r_squared))+
+  geom_density()+
+  xlab("Estimated r squared")
+```
+The \hat{r}^2 plot shows a normal distribution with a mean value around 0.91, indicating that the overall values of \hat{r}^2 were high and the model had a good performance.
+
+plotting the distribution of log(\hat{\beta}_0*\hat{\beta}_1):,
+```{r}
+boot_strap  %>%
+  ggplot(aes(x=log_int))+
+  geom_density()+
+  xlab("Log(Beta_0 x Beta_1)")
+```
+The log(\hat{\beta}_0*\hat{\beta}_1) plot shows a normal distribution with a mean value around 2.015.
+
+2.5% and 07.5% quantiles for \hat{r}^2 and log(\hat{\beta}_0*\hat{\beta}_1):
+```{r}
+ci_r = boot_strap  %>%
+  pull(r_squared) %>%
+  quantile(c(0.025, 0.975))
+
+ci_int = boot_strap  %>%
+  pull(log_int) %>%
+  quantile(c(0.025, 0.975))
+```
+
+The 95% confidence interval for \hat{r}^2 is 0.893 and 0.927. The 95% CI for log(\hat{\beta}_0*\hat{\beta}_1) is 1.96, 20.05
